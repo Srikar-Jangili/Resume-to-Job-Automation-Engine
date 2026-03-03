@@ -1,0 +1,340 @@
+{
+  "name": "Resume-to-Job Automation Engine",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "resume-upload",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "04cff452-323c-4161-a9ff-88c5e5ee99ae",
+      "name": "Resume Upload Webhook",
+      "webhookId": "26f86faa-8ab1-494a-a3bb-b707bf43ec99"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "resume",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "b0c85e3e-986b-4265-af47-4778f30658d5",
+      "name": "Extract Resume PDF Content"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Action: extract_resume_data\n\nExtract structured JSON with:\n- skills (array)\n- experience_years\n- target_roles\n- preferred_location\n\nResume Text:\n{{$json.text}}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        496,
+        -80
+      ],
+      "id": "82ce05ba-dea9-4513-8616-669652431762",
+      "name": "AI Resume Structuring Engine",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "D9Rp0CHvfpmQw44p",
+          "name": "Google Gemini(PaLM) Api account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = items[0].json.content.parts[0].text;\n\nreturn [{\n  json: {\n    resume: JSON.parse(raw)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        -80
+      ],
+      "id": "87643631-ceba-47a1-99d3-2b624dd36c58",
+      "name": "Parse Structured Resume JSON"
+    },
+    {
+      "parameters": {
+        "url": "https://api.adzuna.com/v1/api/jobs/in/search/1",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "app_id",
+              "value": "bac123b5"
+            },
+            {
+              "name": "app_key",
+              "value": "cf2fa6601bee7a0b4acb7ed0e6df72c8"
+            },
+            {
+              "name": "results_per_page",
+              "value": "10"
+            },
+            {
+              "name": "what",
+              "value": "={{$json.target_roles[0]}}"
+            },
+            {
+              "name": "where",
+              "value": "={{$json.preferred_location}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        544,
+        96
+      ],
+      "id": "52867aea-8d32-4b03-b99f-f40b2dc53f0d",
+      "name": "Fetch Relevant Jobs (Adzuna API)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const results = items[0].json.results || [];\n\nconst cleanedJobs = results.map(job => ({\n  title: job.title,\n  company: job.company?.display_name || \"Unknown\",\n  location: job.location?.display_name || \"Unknown\",\n  description: job.description || \"\",\n  apply_link: job.redirect_url || \"\"\n}));\n\nreturn [{\n  json: {\n    jobs: cleanedJobs\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        96
+      ],
+      "id": "7a3e9f3c-6078-4dc9-8080-9eee7ca9e540",
+      "name": "Normalize Job Listings Data"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1072,
+        0
+      ],
+      "id": "52e58aed-ed29-45e9-956a-af109eed1ad5",
+      "name": "Combine Resume & Job Data"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Action: rank_jobs\n\nBased on the resume and job list below, return ONLY the top 5 best matching jobs.\n\nReturn strictly valid JSON array:\n\n[\n  {\n    \"title\": \"\",\n    \"company\": \"\",\n    \"location\": \"\",\n    \"match_score\": 0,\n    \"apply_link\": \"\",\n    \"why_match\": \"\"\n  }\n]\n\nResume:\n{{ JSON.stringify($json.resume) }}\n\nJobs:\n{{ JSON.stringify($json.jobs) }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1232,
+        0
+      ],
+      "id": "07d6c8ac-6467-4b92-8b5a-4f583781675e",
+      "name": "AI Job Ranking Engine",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "D9Rp0CHvfpmQw44p",
+          "name": "Google Gemini(PaLM) Api account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = items[0].json.content.parts[0].text;\n\nreturn [{\n  json: {\n    rankedJobs: JSON.parse(raw)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1552,
+        0
+      ],
+      "id": "669bd5e8-9610-4c0f-a903-03161af34fd0",
+      "name": "Parse Ranked Jobs JSON"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $items(\"Resume Upload Webhook\")[0].json.body.email }}",
+        "subject": "=🔥 Top 5 Matching Jobs for You – {{ new Date().toLocaleDateString() }}",
+        "message": "=={{ $json.rankedJobs.map(job => `\n<hr>\n<h3>${job.title}</h3>\n<p><strong>Company:</strong> ${job.company}</p>\n<p><strong>Location:</strong> ${job.location}</p>\n<p><strong>Match Score:</strong> ${job.match_score}%</p>\n<p><strong>Why it matches:</strong> ${job.why_match}</p>\n<p>\n<a href=\"${job.apply_link}\" target=\"_blank\"\nstyle=\"background:#4CAF50;color:white;padding:8px 12px;text-decoration:none;border-radius:5px;\">\nApply Now\n</a>\n</p>\n`).join('') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1728,
+        0
+      ],
+      "id": "80ec8fa3-4841-4e80-a8de-e389cacc518b",
+      "name": "Send Email",
+      "webhookId": "bedd86b8-9aa1-4403-aaef-cc4145e9666a",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "lGHIV1Hm5JgYmPMi",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Resume Upload Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Resume PDF Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Resume PDF Content": {
+      "main": [
+        [
+          {
+            "node": "Fetch Relevant Jobs (Adzuna API)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Resume Structuring Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Resume Structuring Engine": {
+      "main": [
+        [
+          {
+            "node": "Parse Structured Resume JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Structured Resume JSON": {
+      "main": [
+        [
+          {
+            "node": "Combine Resume & Job Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Relevant Jobs (Adzuna API)": {
+      "main": [
+        [
+          {
+            "node": "Normalize Job Listings Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Job Listings Data": {
+      "main": [
+        [
+          {
+            "node": "Combine Resume & Job Data",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Combine Resume & Job Data": {
+      "main": [
+        [
+          {
+            "node": "AI Job Ranking Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Job Ranking Engine": {
+      "main": [
+        [
+          {
+            "node": "Parse Ranked Jobs JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Ranked Jobs JSON": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "497b7d77-ddc2-48eb-82e6-861bcd960910",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a235100970996201e9617d292d5c7d2fea0445a90f2fdf3f9fa49db0b9344b95"
+  },
+  "id": "UoLXpV0xxaaT7qo5",
+  "tags": []
+}
